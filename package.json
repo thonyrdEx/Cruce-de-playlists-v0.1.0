@@ -1,0 +1,14 @@
+{
+  "name": "cruce-de-playlists",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cruza, filtra y exporta las playlists privadas de tu canal de YouTube.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  }
+}

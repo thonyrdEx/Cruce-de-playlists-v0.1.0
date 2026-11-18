@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Busca y cruza los videos de tus playlists privadas de YouTube.">
+  <title>Cruce de playlists</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="./"><span class="brand-mark" aria-hidden="true"><span></span></span>Cruce de playlists</a>
+      <div class="connection-bar">
+        <span id="mode" class="mode">Datos de ejemplo</span>
+        <button id="connect" type="button" class="primary">Configurar YouTube</button>
+        <button id="settings" type="button" class="subtle" hidden>Configuración</button>
+        <button id="sync" type="button" class="secondary" hidden>Actualizar</button>
+        <button id="disconnect" type="button" class="subtle" hidden>Desconectar</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="intro" aria-labelledby="page-title">
+      <h1 id="page-title">Explora tus playlists</h1>
+      <p>Combina categorías y fechas para encontrar un video en tus listas privadas.</p>
+    </section>
+    <p id="connection-status" class="notice" role="status" hidden></p>
+
+    <div class="layout">
+      <section class="filter-panel" aria-labelledby="filter-title">
+        <div class="panel-heading">
+          <h2 id="filter-title">Filtros</h2>
+          <button id="reset" type="button" class="subtle">Limpiar</button>
+        </div>
+        <label class="field" for="query">Título del video</label>
+        <input id="query" type="search" placeholder="Buscar por título" autocomplete="off">
+
+        <section class="filter-section" aria-labelledby="category-title">
+          <h3 id="category-title">Categorías</h3>
+          <div id="conditions"></div>
+        </section>
+
+        <details class="filter-section" id="date-panel">
+          <summary>Fechas <span class="optional">Opcional</span></summary>
+          <div class="date-block">
+            <h3>Publicado en YouTube</h3>
+            <div class="date-grid">
+              <label>Desde<input id="published-from" type="date" aria-label="Publicado desde"></label>
+              <label>Hasta<input id="published-to" type="date" aria-label="Publicado hasta"></label>
+            </div>
+          </div>
+          <div class="date-block">
+            <label for="added-list" class="field">Añadido a</label>
+            <select id="added-list"></select>
+            <div class="date-grid">
+              <label>Desde<input id="added-from" type="date" aria-label="Añadido desde"></label>
+              <label>Hasta<input id="added-to" type="date" aria-label="Añadido hasta"></label>
+            </div>
+          </div>
+          <p id="date-error" class="error-text" role="status" hidden></p>
+        </details>
+      </section>
+
+      <section class="results" aria-labelledby="results-title">
+        <div class="results-heading">
+          <h2 id="results-title">Videos</h2>
+          <div class="results-actions">
+            <p id="count" aria-live="polite"></p>
+            <button id="export" type="button" class="secondary" disabled>Exportar</button>
+          </div>
+        </div>
+        <nav id="pagination" class="pagination" aria-label="Páginas de resultados" hidden>
+          <p id="page-range" aria-live="polite"></p>
+          <div class="page-controls">
+            <button id="previous-page" type="button" class="secondary">Anterior</button>
+            <form id="page-form">
+              <label for="page-number">Página</label>
+              <input id="page-number" type="number" min="1" step="1" required>
+              <span id="page-total" aria-hidden="true"></span>
+              <button type="submit" class="compact" aria-label="Ir a la página">Ir</button>
+            </form>
+            <button id="next-page" type="button" class="secondary">Siguiente</button>
+          </div>
+        </nav>
+        <div id="video-grid" class="video-grid"></div>
+        <div id="empty" class="empty" hidden></div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="export-dialog" aria-labelledby="export-title">
+    <form id="export-form">
+      <h2 id="export-title">Exportar videos</h2>
+      <p>El CSV guarda una fila por video y playlist. El ZIP guarda una miniatura por ID de video.</p>
+      <fieldset class="export-options">
+        <legend>Contenido del archivo</legend>
+        <label><input id="export-filtered" type="radio" name="export-scope" value="filtered" checked> Resultados filtrados</label>
+        <label><input id="export-playlist" type="radio" name="export-scope" value="playlist"> Playlist completa</label>
+        <label><input id="export-all" type="radio" name="export-scope" value="all"> Todas las playlists privadas</label>
+      </fieldset>
+      <div id="export-list-field" hidden>
+        <label for="export-list" class="field">Playlist</label>
+        <select id="export-list" disabled></select>
+      </div>
+      <div class="dialog-actions">
+        <button id="export-cancel" type="button" class="subtle">Cancelar</button>
+        <button id="export-download" type="submit" class="primary">Descargar CSV</button>
+        <button id="export-thumbnails" type="button" class="secondary" disabled>ZIP de miniaturas</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="connection-dialog" aria-labelledby="connection-title">
+    <form id="connection-form">
+      <h2 id="connection-title">Configurar YouTube</h2>
+      <p>Guarda el ID de cliente OAuth de tu proyecto de Google Cloud en este navegador.</p>
+      <label class="field" for="client-id">ID de cliente OAuth web</label>
+      <input id="client-id" name="client-id" type="text" placeholder="…apps.googleusercontent.com" spellcheck="false" required autocomplete="off">
+      <p class="hint">Autoriza <code id="oauth-origin"></code> como origen de JavaScript. La app solicita acceso de solo lectura y mantiene el token en memoria.</p>
+      <p id="oauth-status" role="status" hidden></p>
+      <div class="dialog-actions">
+        <button id="cancel" type="button" class="subtle">Cerrar</button>
+        <button id="forget-id" type="button" class="subtle" hidden>Olvidar ID</button>
+        <button type="submit" class="primary">Guardar ID</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
