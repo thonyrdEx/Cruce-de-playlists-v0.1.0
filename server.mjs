@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { sendThumbnails } from './thumbnails.mjs';
+import { sessionHandler } from './session.mjs';
 
 const files = new Map([
   ['/', ['index.html', 'text/html']],
@@ -12,6 +13,7 @@ const files = new Map([
 ]);
 
 const port = 4317;
+const handleSession = sessionHandler();
 const server = createServer(async (request, response) => {
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
@@ -20,7 +22,7 @@ const server = createServer(async (request, response) => {
   response.setHeader('Content-Security-Policy', [
     "default-src 'self'", "script-src 'self' https://accounts.google.com/gsi/",
     "style-src 'self' https://accounts.google.com/gsi/style", "img-src 'self' https://*.ytimg.com https://img.youtube.com",
-    "connect-src https://www.googleapis.com https://accounts.google.com/gsi/",
+    "connect-src 'self' https://www.googleapis.com https://accounts.google.com/gsi/",
     "frame-src https://accounts.google.com/gsi/", "object-src 'none'", "base-uri 'none'",
     "frame-ancestors 'none'", "form-action 'self'",
   ].join('; '));
@@ -31,6 +33,15 @@ const server = createServer(async (request, response) => {
     return;
   }
   const path = request.url.split('?')[0];
+  if (path.startsWith('/api/')) {
+    try {
+      if (await handleSession(request, response, path)) return;
+    } catch {
+      if (response.headersSent) response.destroy();
+      else response.writeHead(500).end('Error en la sesión local.');
+      return;
+    }
+  }
   if (path === '/miniaturas.zip') {
     await sendThumbnails(request, response);
     return;

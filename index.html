@@ -17,6 +17,7 @@
         <button id="connect" type="button" class="primary">Configurar YouTube</button>
         <button id="settings" type="button" class="subtle" hidden>Configuración</button>
         <button id="sync" type="button" class="secondary" hidden>Actualizar</button>
+        <button id="clear-cache" type="button" class="subtle" hidden>Borrar caché</button>
         <button id="disconnect" type="button" class="subtle" hidden>Desconectar</button>
       </div>
     </div>
@@ -28,6 +29,7 @@
       <p>Combina categorías y fechas para encontrar un video en tus listas privadas.</p>
     </section>
     <p id="connection-status" class="notice" role="status" hidden></p>
+    <p id="catalog-date" class="catalog-date" hidden></p>
 
     <div class="layout">
       <section class="filter-panel" aria-labelledby="filter-title">
@@ -69,6 +71,15 @@
           <h2 id="results-title">Videos</h2>
           <div class="results-actions">
             <p id="count" aria-live="polite"></p>
+            <label class="view-picker" for="results-view">
+              Vista
+              <select id="results-view">
+                <option value="24">24 por página</option>
+                <option value="48">48 por página</option>
+                <option value="96">96 por página</option>
+                <option value="infinite">Desplazamiento infinito</option>
+              </select>
+            </label>
             <button id="export" type="button" class="secondary" disabled>Exportar</button>
           </div>
         </div>
@@ -86,6 +97,10 @@
           </div>
         </nav>
         <div id="video-grid" class="video-grid"></div>
+        <div id="infinite-controls" class="infinite-controls" hidden>
+          <p id="infinite-range" aria-live="polite"></p>
+          <button id="load-more" type="button" class="secondary">Cargar más</button>
+        </div>
         <div id="empty" class="empty" hidden></div>
       </section>
     </div>
@@ -119,7 +134,7 @@
       <p>Guarda el ID de cliente OAuth de tu proyecto de Google Cloud en este navegador.</p>
       <label class="field" for="client-id">ID de cliente OAuth web</label>
       <input id="client-id" name="client-id" type="text" placeholder="…apps.googleusercontent.com" spellcheck="false" required autocomplete="off">
-      <p class="hint">Autoriza <code id="oauth-origin"></code> como origen de JavaScript. La app solicita acceso de solo lectura y mantiene el token en memoria.</p>
+      <p class="hint">Autoriza <code id="oauth-origin"></code> como origen de JavaScript. La app solicita acceso de solo lectura y conserva la sesión mientras el servidor local está abierto.</p>
       <p id="oauth-status" role="status" hidden></p>
       <div class="dialog-actions">
         <button id="cancel" type="button" class="subtle">Cerrar</button>

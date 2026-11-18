@@ -30,6 +30,13 @@ async function get(token, endpoint, parameters, signal) {
   return data;
 }
 
+export async function currentChannel(token, signal) {
+  const result = await get(token, 'channels', { part: 'snippet', mine: 'true', fields: 'items(id,snippet(title))' }, signal);
+  const channel = result.items?.[0];
+  if (!channel) throw new Error('La cuenta seleccionada no tiene un canal de YouTube accesible.');
+  return { id: channel.id, title: channel.snippet.title };
+}
+
 async function readPages(token, endpoint, parameters, signal, onPage) {
   const items = [];
   let pageToken = '';

@@ -22,7 +22,13 @@ Abre [http://localhost:4317](http://localhost:4317) en el navegador. Puedes prob
 
 El ID queda guardado en ese navegador para `http://localhost:4317`. La próxima vez puedes entrar directamente con **Conectar con Google**. Con el canal desconectado, abre **Configuración** para cambiar el ID o usa **Olvidar ID** para borrarlo. Si usas otra dirección, perfil de navegador o equipo, guarda allí el ID una vez.
 
-La app solicita permiso de lectura y consulta directamente a Google desde tu navegador. El token, las playlists y los datos de los videos se mantienen en memoria durante la sesión. **Desconectar** limpia los datos y solicita la revocación a Google. También puedes revocar el acceso desde los [permisos de tu cuenta de Google](https://myaccount.google.com/permissions). El uso de la integración queda sujeto a los [Términos de YouTube](https://www.youtube.com/t/terms) y a la [Política de privacidad de Google](https://policies.google.com/privacy).
+La app solicita permiso de lectura. El servidor local mantiene el token de acceso en memoria y abre la misma sesión al recargar la página, mientras Node.js siga abierto y el token esté vigente. Si cierras el servidor o vence el acceso, vuelve a pulsar **Conectar con Google**.
+
+## Catálogo guardado
+
+Al conectar tu canal por primera vez, la app sincroniza las playlists. Las siguientes visitas con el canal autorizado abren la copia local y muestran **Última sincronización**. Usa **Actualizar** para consultar los cambios en YouTube. La copia está asociada al canal e incluye playlists, metadatos, fechas y URL de miniaturas. Se guarda en `%LOCALAPPDATA%/cruce-de-playlists` en Windows, o bajo `$XDG_CACHE_HOME` o `~/.cache` en otros sistemas, y caduca a los 29 días.
+
+**Borrar caché** retira ese catálogo de la pantalla y del disco, con la sesión de Google activa. Después puedes volver a cargarlo con **Actualizar**. **Desconectar** cierra la sesión local, borra su catálogo y solicita a Google que revoque el permiso. También puedes revocar el acceso desde los [permisos de tu cuenta de Google](https://myaccount.google.com/permissions). El uso de la integración queda sujeto a los [Términos de YouTube](https://www.youtube.com/t/terms) y a la [Política de privacidad de Google](https://policies.google.com/privacy).
 
 ## Probar los filtros
 
@@ -30,7 +36,8 @@ La app solicita permiso de lectura y consulta directamente a Google desde tu nav
 - Para `(cocina O system) Y Slife_of_life`, elige **Todas (Y)** en el filtro principal. Añade `Slife_of_life` como categoría y crea un grupo con **Cualquiera (O)** que contenga `cocina` y `system`. Verás `v01` y `v03`.
 - En **Fechas**, un rango de incorporación a `system` del 11 al 11 de octubre de 2025 devuelve `v01`. La misma fecha con `Slife_of_life` devuelve cero videos. Las fechas se interpretan en la zona horaria del navegador y los límites son inclusivos. Sin rango, el selector de incorporación no aplica ningún filtro.
 - **Fechas de incorporación** debajo de cada video muestra todas las fechas encontradas por playlist.
-- El catálogo se muestra en páginas de 24 videos. Puedes avanzar, volver o escribir un número de página. Los filtros buscan en todo el catálogo y, cuando cambian, vuelven a la primera página.
+- El selector **Vista** permite mostrar **24**, **48** o **96 por página**, o activar el **Desplazamiento infinito**. La elección se recuerda en ese navegador. En modo infinito aparecen nuevas tandas al bajar o al pulsar **Cargar más**. Al cambiar los filtros, vuelves al inicio de los resultados.
+- Los filtros buscan en todo el catálogo. Tanto el CSV como el ZIP de resultados filtrados abarcan todas las coincidencias, incluidas las que queden en otras páginas o aún no se hayan mostrado al desplazarte.
 
 ## Exportar a CSV
 

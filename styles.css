@@ -49,6 +49,7 @@ button { border-radius: 8px; border: 1px solid transparent; min-height: 36px; pa
 h1 { font-size: clamp(30px, 5vw, 54px); line-height: 1.05; letter-spacing: -.05em; }
 .intro p { color: var(--muted); margin-top: 13px; font-size: 15px; line-height: 1.5; }
 .notice { padding: 11px 15px; border-radius: 9px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; margin-bottom: 18px; }
+.catalog-date { margin: -9px 0 14px; color: var(--muted); font-size: 13px; }
 .layout { display: grid; grid-template-columns: minmax(260px, 292px) minmax(0, 1fr); align-items: start; gap: 28px; }
 .filter-panel { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 13px; padding: 17px; }
 .panel-heading, .results-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -56,7 +57,9 @@ h1 { font-size: clamp(30px, 5vw, 54px); line-height: 1.05; letter-spacing: -.05e
 .panel-heading h2, .results-heading h2 { font-size: 19px; letter-spacing: -.02em; }
 .panel-heading .subtle { min-height: 27px; padding: 4px 7px; }
 .results-heading { min-height: 33px; margin-bottom: 12px; }
-.results-actions { display: flex; align-items: center; gap: 12px; }
+.results-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.view-picker { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.view-picker select { width: auto; max-width: 100%; }
 #count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .pagination p, #page-form { color: var(--muted); font-size: 12px; }
@@ -85,6 +88,9 @@ input::placeholder { color: #9992a9; }
 #date-error, #oauth-status { font-size: 13px; margin-top: 10px; }
 
 .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 265px), 1fr)); gap: 17px; align-items: start; }
+.video-grid.infinite-grid { grid-template-columns: minmax(0, 1fr); }
+.infinite-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; margin-top: 16px; overflow-anchor: none; }
+.infinite-controls p { color: var(--muted); font-size: 13px; }
 .video-card { min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; overflow: hidden; }
 .cover { display: block; position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #232030; }
 .cover:focus-visible { outline-offset: -3px; }

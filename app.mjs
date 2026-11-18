@@ -1,29 +1,39 @@
 import { demoPlaylists, demoVideos, group, searchVideos, videoPage } from './catalog.mjs';
 import { playlistCsv } from './csv.mjs';
-import { privateCatalog, readOnlyScope } from './youtube.mjs';
+import { readOnlyScope } from './youtube.mjs';
 
 const byId = (id) => document.getElementById(id);
 const ui = Object.fromEntries([
-  'mode', 'connect', 'settings', 'sync', 'disconnect', 'connection-status', 'reset', 'query', 'conditions',
+  'mode', 'connect', 'settings', 'sync', 'disconnect', 'connection-status', 'clear-cache', 'catalog-date',
+  'reset', 'query', 'conditions',
   'published-from', 'published-to', 'added-list', 'added-from', 'added-to', 'date-error',
   'count', 'video-grid', 'empty', 'connection-dialog', 'connection-form', 'client-id',
   'oauth-origin', 'oauth-status', 'cancel', 'forget-id',
   'export', 'export-dialog', 'export-form', 'export-filtered', 'export-playlist', 'export-all', 'export-list-field',
   'export-list', 'export-download', 'export-thumbnails', 'export-cancel',
   'pagination', 'page-range', 'previous-page', 'page-form', 'page-number', 'page-total', 'next-page',
+  'results-view', 'infinite-controls', 'infinite-range', 'load-more',
 ].map((id) => [id, byId(id)]));
 
 const demo = { playlists: demoPlaylists, videos: demoVideos };
-const pageSize = 24;
+const infiniteBatchSize = 24;
+const viewKey = 'cruce-de-playlists.results-view';
 const clientIdKey = 'cruce-de-playlists.google-client-id';
 const clientIdPattern = /^[\w-]+\.apps\.googleusercontent\.com$/;
 const dateFormatter = new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short', year: 'numeric' });
+const syncFormatter = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' });
 let data = demo;
 let matchingVideos = [];
 let pageNumber = 1;
+let resultView = '24';
+let loadedCount = 0;
+const batches = new Map();
+const openMemberships = new Set();
 let condition = group();
-let accessToken = '';
-let expiresAt = 0;
+let session;
+let syncedAt = 0;
+let changingSession = true;
+let deletingCache = false;
 let expiryTimer;
 let activeLoad;
 let identityScript;
@@ -33,9 +43,25 @@ let savedClientId = '';
 try {
   const storedId = localStorage.getItem(clientIdKey) || '';
   if (clientIdPattern.test(storedId)) savedClientId = storedId;
+  const storedView = localStorage.getItem(viewKey);
+  if (Array.from(ui['results-view'].options).some(({ value }) => value === storedView)) resultView = storedView;
 } catch {
   // Settings are still usable for the current tab when storage is blocked.
 }
+
+const observeBatches = typeof IntersectionObserver === 'function' ? new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    const batch = batches.get(entry.target);
+    if (!batch) continue;
+    batch.nearby = entry.isIntersecting;
+    if (batch.nearby && !entry.target.firstChild) mountBatch(entry.target, batch);
+    else if (!batch.nearby) releaseBatch(entry.target);
+  }
+}, { rootMargin: '800px 0px' }) : null;
+
+const observeEnd = typeof IntersectionObserver === 'function' ? new IntersectionObserver((entries) => {
+  if (entries.some(({ isIntersecting }) => isIntersecting) && document.activeElement !== ui['load-more']) loadMoreVideos();
+}, { rootMargin: '0px 0px 360px' }) : null;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -164,6 +190,14 @@ function videoCard(video, playlists) {
   const badges = element('ul', 'badges');
   badges.setAttribute('aria-label', 'Playlists y fechas de incorporación');
   const details = element('details', 'membership-details');
+  if (resultView === 'infinite') {
+    details.open = openMemberships.has(video.id);
+    details.addEventListener('toggle', () => {
+      if (!details.isConnected) return;
+      if (details.open) openMemberships.add(video.id);
+      else openMemberships.delete(video.id);
+    });
+  }
   details.append(element('summary', '', 'Fechas de incorporación'));
   const dates = element('dl');
   for (const [id, membershipDates] of video.memberships) {
@@ -197,15 +231,16 @@ function renderResults() {
   matchingVideos = invalid ? [] : searchVideos(data.videos, { condition, query: ui.query.value, published, added });
   ui.count.textContent = `${matchingVideos.length} de ${data.videos.length}`;
   ui.empty.hidden = matchingVideos.length > 0 || invalid;
-  ui.empty.textContent = data.playlists.length === 0 ? 'Este canal no tiene playlists privadas.' :
+  ui.empty.textContent = session && !syncedAt ? 'El catálogo está vacío. Pulsa Actualizar para cargar tus playlists privadas.' :
+    data.playlists.length === 0 ? 'Este canal no tiene playlists privadas.' :
     data.videos.length === 0 ? 'Las playlists privadas de este canal están vacías.' :
     'No encontramos videos con esos filtros.';
-  renderPage(1);
+  renderResultView();
   updateExportButton();
 }
 
 function renderPage(requestedPage) {
-  const page = videoPage(matchingVideos, requestedPage, pageSize);
+  const page = videoPage(matchingVideos, requestedPage, Number(resultView));
   pageNumber = page.number;
   ui.pagination.hidden = page.total <= 1;
   ui['page-range'].textContent = page.items.length ? `Mostrando ${page.start + 1}–${page.end} de ${matchingVideos.length}` : '';
@@ -215,14 +250,77 @@ function renderPage(requestedPage) {
   ui['previous-page'].disabled = pageNumber === 1;
   ui['next-page'].disabled = pageNumber === page.total;
 
+  ui['video-grid'].replaceChildren(buildCards(page.items));
+}
+
+function buildCards(videos) {
   const playlists = new Map(data.playlists.map(({ id, title }) => [id, title]));
   const cards = document.createDocumentFragment();
-  for (const video of page.items) cards.append(videoCard(video, playlists));
-  ui['video-grid'].replaceChildren(cards);
+  for (const video of videos) cards.append(videoCard(video, playlists));
+  return cards;
+}
+
+function renderResultView() {
+  observeBatches?.disconnect();
+  observeEnd?.disconnect();
+  batches.clear();
+  openMemberships.clear();
+  loadedCount = 0;
+  const infinite = resultView === 'infinite';
+  ui['video-grid'].classList.toggle('infinite-grid', infinite);
+  ui['infinite-controls'].hidden = !infinite || matchingVideos.length === 0;
+  if (infinite) {
+    ui.pagination.hidden = true;
+    ui['video-grid'].replaceChildren();
+    loadMoreVideos();
+  } else {
+    renderPage(1);
+  }
+}
+
+function mountBatch(node, { start, end }) {
+  const cards = element('div', 'video-grid');
+  cards.append(buildCards(matchingVideos.slice(start, end)));
+  node.append(cards);
+  node.style.height = '';
+}
+
+function releaseBatch(node) {
+  if (!node.firstChild || node.contains(document.activeElement)) return;
+  node.style.height = `${node.getBoundingClientRect().height}px`;
+  node.replaceChildren();
+}
+
+function loadMoreVideos(focusNext = false) {
+  if (resultView !== 'infinite' || loadedCount >= matchingVideos.length) return;
+  const start = loadedCount;
+  loadedCount = Math.min(start + infiniteBatchSize, matchingVideos.length);
+  const node = element('div');
+  const batch = { start, end: loadedCount, nearby: true };
+  batches.set(node, batch);
+  ui['video-grid'].append(node);
+  mountBatch(node, batch);
+  observeBatches?.observe(node);
+  node.addEventListener('focusout', () => {
+    queueMicrotask(() => {
+      if (node.isConnected && !batch.nearby) releaseBatch(node);
+    });
+  });
+
+  ui['infinite-range'].textContent = `${loadedCount} de ${matchingVideos.length} videos cargados`;
+  ui['load-more'].hidden = loadedCount === matchingVideos.length;
+  if (ui['load-more'].hidden) observeEnd?.disconnect();
+  else observeEnd?.observe(ui['infinite-controls']);
+
+  if (focusNext) {
+    const firstTitle = node.querySelector('h3');
+    firstTitle.tabIndex = -1;
+    firstTitle.focus();
+  }
 }
 
 function updateExportButton() {
-  ui.export.disabled = Boolean(activeLoad) || data.playlists.length === 0;
+  ui.export.disabled = Boolean(activeLoad) || changingSession || deletingCache || data.playlists.length === 0;
 }
 
 function updateExportDialog() {
@@ -287,70 +385,137 @@ function keepExistingConditions(value, playlistIds) {
 }
 
 function renderConnection() {
-  ui.mode.textContent = accessToken ? (data === demo ? 'Conectando…' : data.channelTitle || 'Playlists privadas') : 'Datos de ejemplo';
-  ui.mode.classList.toggle('connected', Boolean(accessToken && data !== demo));
-  ui.connect.hidden = Boolean(accessToken);
+  ui.mode.textContent = session?.channel.title || (changingSession ? 'Cargando sesión…' : 'Datos de ejemplo');
+  ui.mode.classList.toggle('connected', Boolean(session));
+  ui.connect.hidden = Boolean(session);
   ui.connect.textContent = savedClientId ? 'Conectar con Google' : 'Configurar YouTube';
-  ui.connect.disabled = authorizing || Boolean(savedClientId && loadingIdentity);
-  ui.settings.hidden = Boolean(accessToken) || !savedClientId;
-  ui.settings.disabled = authorizing;
-  ui.sync.hidden = ui.disconnect.hidden = !accessToken;
-  ui.sync.disabled = Boolean(activeLoad);
+  ui.connect.disabled = changingSession || authorizing || Boolean(savedClientId && loadingIdentity);
+  ui.settings.hidden = Boolean(session) || !savedClientId;
+  ui.settings.disabled = changingSession || authorizing;
+  ui.sync.hidden = ui.disconnect.hidden = ui['clear-cache'].hidden = !session;
+  ui.sync.disabled = Boolean(activeLoad) || changingSession || deletingCache;
+  ui['clear-cache'].disabled = changingSession || deletingCache;
+  ui.disconnect.disabled = changingSession || deletingCache;
+  message(ui['catalog-date'], syncedAt ? `Última sincronización: ${syncFormatter.format(syncedAt)}` : '');
   updateExportButton();
 }
 
-function endSession(notice, revoke = false) {
-  const token = accessToken;
-  accessToken = '';
-  expiresAt = 0;
+async function localRequest(path, options) {
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    const error = new Error(result.error || 'No se pudo comunicar con el servidor local.');
+    error.status = response.status;
+    throw error;
+  }
+  return response;
+}
+
+function clearLocalCatalog() {
+  if (ui['export-dialog'].open) ui['export-dialog'].close();
+  data = session ? { playlists: [], videos: [] } : demo;
+  syncedAt = 0;
+  resetFilters();
+}
+
+function endSession(notice, error = false) {
+  session = undefined;
   clearTimeout(expiryTimer);
   activeLoad?.abort();
   activeLoad = undefined;
-  if (ui['export-dialog'].open) ui['export-dialog'].close();
-  data = demo;
-  if (revoke && token) window.google.accounts.oauth2.revoke(token, (result) => {
-    if (result?.error && !accessToken) message(ui['connection-status'], 'Se borraron los datos de esta pestaña. Google no confirmó la revocación.', true);
-  });
-  resetFilters();
+  clearLocalCatalog();
   renderConnection();
-  message(ui['connection-status'], notice);
+  message(ui['connection-status'], notice, error);
 }
 
-async function loadPlaylists() {
-  if (!accessToken || activeLoad) return;
-  if (Date.now() >= expiresAt) {
-    endSession('La sesión de YouTube venció. Vuelve a conectar tu canal.');
-    return;
+function showSnapshot(snapshot) {
+  const { catalog, savedAt } = snapshot;
+  data = {
+    ...catalog,
+    videos: catalog.videos.map((video) => ({
+      ...video,
+      memberships: new Map(video.memberships.map(([id, dates]) => [id, new Set(dates)])),
+    })),
+  };
+  syncedAt = savedAt;
+  const playlistIds = new Set(data.playlists.map(({ id }) => id));
+  keepExistingConditions(condition, playlistIds);
+  if (ui['added-list'].value && !playlistIds.has(ui['added-list'].value)) {
+    ui['added-from'].value = ui['added-to'].value = '';
   }
-  const previous = data;
+  renderFilters();
+}
+
+function useSession(details) {
+  if (!details.channel) return;
+  session = { channel: details.channel, expiresAt: details.expiresAt };
+  clearLocalCatalog();
+  if (details.snapshot) showSnapshot(details.snapshot);
+  clearTimeout(expiryTimer);
+  expiryTimer = setTimeout(() => endSession('La sesión de YouTube venció. Vuelve a conectar tu canal.'), Math.max(0, session.expiresAt - Date.now()));
+  message(ui['connection-status'], details.warning, Boolean(details.warning));
+}
+
+async function loadPlaylists(resume = false) {
+  if (!session || activeLoad || deletingCache) return;
   const controller = new AbortController();
   activeLoad = controller;
   renderConnection();
   message(ui['connection-status'], 'Buscando playlists privadas…');
   try {
-    const catalog = await privateCatalog(accessToken, controller.signal, (progress) => {
-      if (activeLoad === controller) message(ui['connection-status'], progress);
-    });
-    if (activeLoad !== controller) return;
-    data = catalog;
-    if (previous === demo) resetFilters();
-    else {
-      const playlistIds = new Set(data.playlists.map(({ id }) => id));
-      keepExistingConditions(condition, playlistIds);
-      if (ui['added-list'].value && !playlistIds.has(ui['added-list'].value)) {
-        ui['added-from'].value = ui['added-to'].value = '';
+    const response = await localRequest(resume ? '/api/catalog?resume=1' : '/api/catalog', { method: 'POST', signal: controller.signal });
+    let remaining = '';
+    for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
+      if (activeLoad !== controller) return;
+      const lines = (remaining + chunk).split('\n');
+      remaining = lines.pop();
+      for (const line of lines) {
+        const event = JSON.parse(line);
+        if (event.status === 401) { endSession(event.error); return; }
+        if (event.error) throw new Error(event.error);
+        if (event.progress) message(ui['connection-status'], event.progress);
+        if (event.snapshot) showSnapshot(event.snapshot);
+        if ('snapshot' in event) message(ui['connection-status'], event.warning, Boolean(event.warning));
       }
-      renderFilters();
     }
-    message(ui['connection-status']);
   } catch (error) {
     if (activeLoad !== controller) return;
-    controller.abort();
-    const notice = error instanceof TypeError ? 'No hubo conexión con YouTube. Revisa tu acceso a internet e intenta de nuevo.' : error.message;
-    if (error.status === 401 || previous === demo) endSession(notice);
-    else message(ui['connection-status'], notice, true);
+    if (error.status === 401) endSession(error.message);
+    else message(ui['connection-status'], error.message, true);
   } finally {
     if (activeLoad === controller) activeLoad = undefined;
+    renderConnection();
+  }
+}
+
+async function restoreSession() {
+  try {
+    const response = await localRequest('/api/session');
+    const details = await response.json();
+    useSession(details);
+    if (details.syncing) loadPlaylists(true);
+  } catch (error) {
+    if (error.status !== 401) message(ui['connection-status'], error.message, true);
+  } finally {
+    changingSession = false;
+    renderConnection();
+  }
+}
+
+async function startSession(tokenResponse) {
+  try {
+    const response = await localRequest('/api/session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: tokenResponse.access_token, expiresIn: tokenResponse.expires_in }),
+    });
+    const details = await response.json();
+    useSession(details);
+    if (details.syncing) loadPlaylists(true);
+    else if (!details.snapshot) loadPlaylists();
+  } catch (error) {
+    authorizationError(error.message);
+  } finally {
+    authorizing = false;
     renderConnection();
   }
 }
@@ -413,12 +578,7 @@ function connectWithGoogle(oauth) {
           authorizationError(`Google no concedió el permiso de lectura${response.error ? ` (${response.error})` : ''}.`);
           return;
         }
-        authorizing = false;
-        accessToken = response.access_token;
-        const lifetime = (Number(response.expires_in) || 3600) * 1000;
-        expiresAt = Date.now() + lifetime;
-        expiryTimer = setTimeout(() => endSession('La sesión de YouTube venció. Vuelve a conectar tu canal.'), lifetime);
-        loadPlaylists();
+        startSession(response);
       },
       error_callback: ({ type }) => authorizationError(type === 'popup_closed' ? 'Se cerró la ventana de Google.' : 'Google no pudo abrir la autorización. Revisa el bloqueo de ventanas emergentes.'),
     });
@@ -473,9 +633,52 @@ ui['forget-id'].onclick = () => {
 };
 
 ui.cancel.onclick = () => ui['connection-dialog'].close();
-ui.disconnect.onclick = () => endSession('Desconectaste YouTube. Ahora ves los datos de ejemplo.', true);
-ui.sync.onclick = loadPlaylists;
+ui.disconnect.onclick = async () => {
+  if (changingSession) return;
+  changingSession = true;
+  renderConnection();
+  try {
+    const response = await localRequest('/api/session', { method: 'DELETE' });
+    const { warning } = await response.json();
+    endSession(warning || 'Desconectaste YouTube. Ahora ves los datos de ejemplo.', Boolean(warning));
+  } catch (error) {
+    if (error.status === 401) endSession(error.message);
+    else message(ui['connection-status'], error.message, true);
+  } finally {
+    changingSession = false;
+    renderConnection();
+  }
+};
+ui['clear-cache'].onclick = async () => {
+  deletingCache = true;
+  activeLoad?.abort();
+  activeLoad = undefined;
+  renderConnection();
+  try {
+    await localRequest('/api/catalog', { method: 'DELETE' });
+    clearLocalCatalog();
+    if (session) message(ui['connection-status'], 'Caché local borrada. Sigues conectado a YouTube.');
+  } catch (error) {
+    if (error.status === 401) endSession(error.message);
+    else message(ui['connection-status'], error.message, true);
+  } finally {
+    deletingCache = false;
+    renderConnection();
+  }
+};
+ui.sync.onclick = () => loadPlaylists();
 ui.reset.onclick = resetFilters;
+ui['results-view'].value = resultView;
+ui['results-view'].onchange = () => {
+  resultView = ui['results-view'].value;
+  try {
+    localStorage.setItem(viewKey, resultView);
+  } catch {
+    // The selected view is still usable for the current tab.
+  }
+  renderResultView();
+};
+ui['load-more'].onclick = () => loadMoreVideos(true);
 ui['previous-page'].onclick = () => renderPage(pageNumber - 1);
 ui['next-page'].onclick = () => renderPage(pageNumber + 1);
 ui['page-form'].onsubmit = (event) => {
@@ -523,3 +726,4 @@ for (const id of ['query', 'published-from', 'published-to', 'added-list', 'adde
 renderFilters();
 renderConnection();
 if (savedClientId) prepareGoogle();
+restoreSession();
