@@ -7,6 +7,7 @@ Aplicación local para cruzar las playlists privadas de tu canal de YouTube. Bus
 Necesitas [Node.js 22 o posterior](https://nodejs.org/). Clona el repositorio desde **Code** en GitHub o descarga su código fuente. Abre una terminal en la carpeta que contiene `package.json` y ejecuta:
 
 ```sh
+npm install
 npm start
 ```
 
